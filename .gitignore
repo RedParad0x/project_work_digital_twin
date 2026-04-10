@@ -1,1 +1,31 @@
+# --- PYTHON ---
+# Ambiente virtuale (fondamentale non caricarlo!)
 venv/
+ENV/
+env/
+
+# File compilati e cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- DATI E LOG ---
+# Cartella dati locale (per non caricare dataset giganti)
+data/
+*.csv
+*.json
+*.log
+
+# --- DATABASE ---
+# Se tieni i dati di MongoDB in locale fuori da Docker
+db_data/
+
+# --- CONFIGURAZIONI E SICUREZZA ---
+# File contenenti password o chiavi API
+.env
+
+# --- IDE (Visual Studio Code) ---
+# Impostazioni personali del tuo editor
+.vscode/
+.history/
+*.code-workspace
