@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo
+    container_name: twin_mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: mediatwin1
+    volumes:
+      - ./data/mongo:/data/db
+
+  neo4j:
+    image: neo4j:latest
+    container_name: twin_neo4j
+    restart: always
+    ports:
+      - "7474:7474" # Interfaccia Web (Browser)
+      - "7687:7687" # Connessione Bolt (Python)
+    environment:
+      NEO4J_AUTH: neo4j/mediatwin1
+    volumes:
+      - ./data/neo4j:/data

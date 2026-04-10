@@ -1,0 +1,6 @@
+python-dotenv
+pymongo
+neo4j
+requests
+beautifulsoup4
+yfinance
