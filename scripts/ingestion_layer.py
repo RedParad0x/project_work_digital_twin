@@ -16,27 +16,18 @@ Corso  : Big Data Engineer & Solution Architect — 2° anno
 from __future__ import annotations
 
 import logging
+import os
+import signal
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-import os
-
 from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
-
-# ---------------------------------------------------------------------------
-# Configurazione logging
-# ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-log = logging.getLogger("ingestion_layer")
 
 # ---------------------------------------------------------------------------
 # Caricamento variabili d'ambiente dal file .env
@@ -49,6 +40,43 @@ NEO4J_URI      = os.getenv("NEO4J_URI")
 NEO4J_USER     = os.getenv("NEO4J_USER")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
+# ---------------------------------------------------------------------------
+# Configurazione logging (terminale + file)
+# ---------------------------------------------------------------------------
+start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+LOG_DIR    = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "ingestion_layer")
+LOG_FILE   = os.path.join(LOG_DIR, f"ingestion_layer_{start_time}.log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_formatter = logging.Formatter(
+    fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.INFO)
+_root_logger.handlers.clear()
+
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_formatter)
+_root_logger.addHandler(_console_handler)
+
+_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+_file_handler.setFormatter(_formatter)
+_root_logger.addHandler(_file_handler)
+
+log = logging.getLogger("ingestion_layer")
+log.setLevel(logging.INFO)
+
+log.info("Logging configurato correttamente")
+
+# Signal handler per flushare i log su interruzione
+def signal_handler(sig, frame):
+    _file_handler.flush()
+    logging.shutdown()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
 
 # ---------------------------------------------------------------------------
 # Tipi supportati
@@ -57,8 +85,8 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 # Sorgenti dati gestite dal layer
 SourceType = Literal["yfinance", "newsapi", "reddit", "gdelt", "youtube", "google_trends"]
 
-# Label Neo4j: Asset per entità finanziarie, Event per notizie/post
-NodeLabel = Literal["Asset", "Event"]
+# Label Neo4j: Company per aziende, Event per notizie/post/video, Topic per keywords
+NodeLabel = Literal["Company", "Event", "Topic"]
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +105,13 @@ class IngestionLayer:
         self._db           = self._mongo_client[MONGO_DB_NAME]
         self._collection   = self._db["raw_data"]
         log.info("MongoDB connesso → DB: %s | Collezione: raw_data", MONGO_DB_NAME)
+
+        # Indici per ottimizzare le query del layer NLP
+        # sentiment_label: il worker NLP cerca documenti con sentiment_label = null
+        # source + ingested_at: per query per sorgente in ordine cronologico
+        self._collection.create_index("payload.sentiment_label", sparse=True)
+        self._collection.create_index([("source", 1), ("ingested_at", -1)])
+        log.info("Indici MongoDB verificati/creati")
 
         # -- Connessione Neo4j --
         self._neo4j_driver = GraphDatabase.driver(
@@ -105,7 +140,7 @@ class IngestionLayer:
         ----------
         source      : sorgente del dato (es. "yfinance", "newsapi")
         data_type   : tipo semantico (es. "asset", "event", "social")
-        node_label  : label del nodo Neo4j ("Asset" o "Event")
+        node_label  : label del nodo Neo4j ("Company", "Event", o "Topic")
         payload     : dizionario con i dati specifici della sorgente
         """
 
@@ -174,14 +209,19 @@ class IngestionLayer:
         """
         try:
             with self._neo4j_driver.session() as session:
-                if node_label == "Asset":
+                if node_label == "Company":
                     session.execute_write(
-                        self._merge_asset_node,
+                        self._merge_company_node,
                         mongo_id, source, ingested_at, payload
                     )
                 elif node_label == "Event":
                     session.execute_write(
                         self._merge_event_node,
+                        mongo_id, source, ingested_at, payload
+                    )
+                elif node_label == "Topic":
+                    session.execute_write(
+                        self._merge_topic_node,
                         mongo_id, source, ingested_at, payload
                     )
                 else:
@@ -211,24 +251,24 @@ class IngestionLayer:
     # -----------------------------------------------------------------------
 
     @staticmethod
-    def _merge_asset_node(tx, mongo_id, source, ingested_at, payload):
+    def _merge_company_node(tx, mongo_id, source, ingested_at, payload):
         """
-        MERGE su ticker: se il nodo esiste già ne aggiorna i prezzi,
-        altrimenti lo crea. Evita nodi duplicati per lo stesso asset.
+        MERGE su ticker: se il nodo Company esiste già ne aggiorna i dati,
+        altrimenti lo crea. Evita nodi duplicati per lo stesso ticker.
         """
         query = """
-        MERGE (a:Asset {ticker: $ticker})
+        MERGE (c:Company {ticker: $ticker})
         ON CREATE SET
-            a.mongo_id   = $mongo_id,
-            a.name       = $name,
-            a.market     = $market,
-            a.source     = $source,
-            a.created_at = $ingested_at,
-            a.last_close = $last_close,
-            a.updated_at = $ingested_at
+            c.mongo_id   = $mongo_id,
+            c.name       = $name,
+            c.market     = $market,
+            c.source     = $source,
+            c.created_at = $ingested_at,
+            c.last_close = $last_close,
+            c.updated_at = $ingested_at
         ON MATCH SET
-            a.last_close = $last_close,
-            a.updated_at = $ingested_at
+            c.last_close = $last_close,
+            c.updated_at = $ingested_at
         """
         tx.run(query,
             mongo_id    = mongo_id,
@@ -245,6 +285,7 @@ class IngestionLayer:
         """
         MERGE su mongo_id: ogni evento è unico, identificato dal suo ID.
         I campi sentiment partono a null e vengono popolati dal layer NLP.
+        Usato da: newsapi, reddit, gdelt, youtube.
         """
         query = """
         MERGE (e:Event {mongo_id: $mongo_id})
@@ -262,6 +303,30 @@ class IngestionLayer:
             title        = payload.get("title", payload.get("body", "")[:80]),
             published_at = payload.get("published_at", payload.get("created_utc", ingested_at)),
             ingested_at  = ingested_at,
+        )
+
+    @staticmethod
+    def _merge_topic_node(tx, mongo_id, source, ingested_at, payload):
+        """
+        MERGE su keyword: ogni Topic rappresenta una keyword di Google Trends.
+        I nodi Topic ricevono relazioni [:TRENDING_WITH] dalle Company.
+        Usato da: google_trends (pytrends).
+        """
+        query = """
+        MERGE (t:Topic {name: $name})
+        ON CREATE SET
+            t.mongo_id   = $mongo_id,
+            t.source     = $source,
+            t.created_at = $ingested_at,
+            t.updated_at = $ingested_at
+        ON MATCH SET
+            t.updated_at = $ingested_at
+        """
+        tx.run(query,
+            mongo_id    = mongo_id,
+            name        = payload.get("keyword", "UNKNOWN"),
+            source      = source,
+            ingested_at = ingested_at,
         )
 
     # -----------------------------------------------------------------------
@@ -289,11 +354,11 @@ if __name__ == "__main__":
 
     with IngestionLayer() as il:
 
-        # -- Test 1: dato finanziario da yfinance (nodo Asset) --
+        # -- Test 1: dato finanziario da yfinance (nodo Company) --
         id_asset = il.dual_write(
             source     = "yfinance",
             data_type  = "asset",
-            node_label = "Asset",
+            node_label = "Company",
             payload    = {
                 "ticker": "ENI.MI",
                 "name":   "Eni S.p.A.",
@@ -306,7 +371,7 @@ if __name__ == "__main__":
                 "volume": 9_200_000,
             }
         )
-        print(f"\n[TEST 1] Asset inserito → mongo_id: {id_asset}")
+        print(f"\n[TEST 1] Company inserito → mongo_id: {id_asset}")
 
         # -- Test 2: articolo da NewsAPI (nodo Event) --
         id_event = il.dual_write(

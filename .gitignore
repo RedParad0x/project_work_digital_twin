@@ -23,9 +23,15 @@ db_data/
 # --- CONFIGURAZIONI E SICUREZZA ---
 # File contenenti password o chiavi API
 .env
+# --- FILE LOG NELLA CARTELLA ---
+# Il file è in modalità append — ogni riavvio aggiunge righe senza cancellare la storia precedente
+logs/
 
 # --- IDE (Visual Studio Code) ---
 # Impostazioni personali del tuo editor
 .vscode/
 .history/
 *.code-workspace
+
+# --- LISTA PAROLACCE ---
+data/profanity_list.txt
