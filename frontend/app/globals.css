@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(0, 229, 255, 0.06), transparent 26%),
+    radial-gradient(circle at 10% 5%, rgba(98, 250, 227, 0.045), transparent 26%),
+    #111317;
+  color: #e2e2e8;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.data-grid-bg {
+  background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.glass-panel {
+  background: rgba(30, 32, 36, 0.92);
+  border: 1px solid rgba(132, 147, 150, 0.22);
+  border-radius: 0.75rem;
+  box-shadow: 0 0 50px rgba(0, 229, 255, 0.055);
+}
+
+.panel-highlight {
+  position: relative;
+}
+
+.panel-highlight:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border-top: 1px solid rgba(195, 245, 255, 0.16);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333539;
+  border-radius: 999px;
+}
+
+.chart-path {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: dash 2.4s ease forwards;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+::selection {
+  background: rgba(0, 229, 255, 0.25);
+}
