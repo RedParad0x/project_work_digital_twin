@@ -1,37 +1,123 @@
-# --- PYTHON ---
-# Ambiente virtuale (fondamentale non caricarlo!)
+# =========================================================
+# PYTHON
+# =========================================================
+
+# Ambienti virtuali
 venv/
 ENV/
 env/
 
-# File compilati e cache
+# Cache e file compilati
 __pycache__/
 *.py[cod]
 *$py.class
 
-# --- DATI E LOG ---
-# Cartella dati locale (per non caricare dataset giganti)
+# Tool Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# =========================================================
+# DATI E LOG
+# =========================================================
+
+# Dataset e dati locali
 data/
-*.csv
-*.json
+
+# Log
+logs/
 *.log
 
-# --- DATABASE ---
-# Se tieni i dati di MongoDB in locale fuori da Docker
+# File temporanei
+tmp/
+temp/
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+# MongoDB locali
 db_data/
+mongo_data/
 
-# --- CONFIGURAZIONI E SICUREZZA ---
-# File contenenti password o chiavi API
+# Neo4j locali
+neo4j_data/
+
+# Docker volumes / storage
+volumes/
+
+# =========================================================
+# CONFIGURAZIONI E SICUREZZA
+# =========================================================
+
+# Variabili ambiente e segreti
 .env
-# --- FILE LOG NELLA CARTELLA ---
-# Il file è in modalità append — ogni riavvio aggiunge righe senza cancellare la storia precedente
-logs/
+.env.local
+.env.*.local
 
-# --- IDE (Visual Studio Code) ---
-# Impostazioni personali del tuo editor
+# Chiavi e certificati
+*.pem
+*.key
+
+# =========================================================
+# FRONTEND / NEXT.JS
+# =========================================================
+
+# Dipendenze Node
+node_modules/
+
+# Build Next.js
+.next/
+out/
+
+# Build generiche frontend
+dist/
+build/
+
+# =========================================================
+# DOCKER
+# =========================================================
+
+# Override locali Docker
+docker-compose.override.yml
+
+# =========================================================
+# FILE GRANDI / EXPORT
+# =========================================================
+
+# Export e output
+exports/
+reports/
+
+# File pesanti opzionali
+*.sqlite
+*.db
+
+# =========================================================
+# IDE / EDITOR
+# =========================================================
+
+# VSCode
 .vscode/
 .history/
 *.code-workspace
 
-# --- LISTA PAROLACCE ---
+# JetBrains
+.idea/
+
+# =========================================================
+# SISTEMA OPERATIVO
+# =========================================================
+
+.DS_Store
+Thumbs.db
+
+# =========================================================
+# FILE SPECIFICI PROGETTO
+# =========================================================
+
+# Lista parole offensive
 data/profanity_list.txt
+
+# ho tolto *.json
