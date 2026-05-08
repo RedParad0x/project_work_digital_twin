@@ -320,6 +320,3 @@ def pipeline_run_all():
 
 from pipeline_pro import router as pipeline_pro_router
 app.include_router(pipeline_pro_router)
-
-from streamlit_compat import router as streamlit_compat_router
-app.include_router(streamlit_compat_router)

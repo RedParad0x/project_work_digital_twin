@@ -1,5 +1,0 @@
-fastapi
-uvicorn
-pymongo
-neo4j
-python-dotenv
