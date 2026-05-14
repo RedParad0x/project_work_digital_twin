@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Media Twin",
-  description: "Media Digital Twin Intelligence Cockpit",
+  description: "Media Digital Twin Intelligence Overview",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

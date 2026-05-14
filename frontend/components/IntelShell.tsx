@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Activity, Database, GitCompare, Network, Settings, Workflow, Building2 } from "lucide-react";
 
 const nav = [
-  { href: "/overview", label: "Cockpit", icon: Activity },
+  { href: "/overview", label: "Overview", icon: Activity },
   { href: "/graph", label: "Graph Explorer", icon: Network },
   { href: "/mongodb", label: "Document Lab", icon: Database },
 ];

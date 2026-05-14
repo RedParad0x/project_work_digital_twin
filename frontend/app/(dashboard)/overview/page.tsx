@@ -144,7 +144,7 @@ function barWidth(value: number, max: number) {
   return `${Math.max(3, Math.round((value / max) * 100))}%`;
 }
 
-export default function StreamlitIntegratedCockpit() {
+export default function StreamlitIntegratedOverview() {
   const [selectedCompany, setSelectedCompany] = useState("NVDA");
   const [enabledSources, setEnabledSources] = useState<string[]>(["gdelt", "newsapi", "reddit", "youtube", "google_trends"]);
   const [sentimentFilter, setSentimentFilter] = useState("all");
@@ -311,9 +311,12 @@ export default function StreamlitIntegratedCockpit() {
       <Panel className="p-5">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <SectionTitle title="Media Twin Operational Cockpit" subtitle="Nuovo frontend che integra le funzioni delle vecchie pagine Streamlit: pipeline, MongoDB, Neo4j, aziende e confronto DB." />
+            <SectionTitle
+              title="Media Twin Dashboard"
+              subtitle="Dashboard principale per analizzare aziende, fonti dati, sentiment e relazioni tra eventi."
+              />
             <p className="mt-3 max-w-5xl text-sm leading-6 text-on-variant">
-              Scegli azienda e fonti, avvia le pipeline, controlla sentiment, documenti raw, schema MongoDB, query Neo4j e confronto MongoDB vs Neo4j.
+              Seleziona un’azienda, scegli le sorgenti da analizzare e consulta documenti raccolti, sentiment, pipeline, dati finanziari e relazioni Neo4j.
             </p>
           </div>
 

@@ -1,5 +1,5 @@
 {
-  "name": "media-twin-cockpit",
+  "name": "media-twin-overview",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -13,6 +13,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "react-force-graph-2d": "^1.29.1",
     "recharts": "latest",
     "typescript": "latest"
   },
