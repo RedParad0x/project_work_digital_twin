@@ -176,13 +176,13 @@ export default function StreamlitIntegratedCockpit() {
       const [ov, docRes, sch, comp, cmp, pipe, logRes, mg, nq] = await Promise.all([
         api<any>("/overview").catch((e) => ({ error: String(e) })),
         api<any>(docUrl),
-        api<any>("/compat/mongo/schema").catch((e) => ({ error: String(e), sources: [] })),
-        api<any>(`/compat/company/${selectedCompany}/full?days=30`).catch((e) => ({ error: String(e) })),
-        api<any>(`/compat/compare/${selectedCompany}/full?days=30`).catch((e) => ({ error: String(e) })),
+        Promise.resolve({ sources: [] }),
+        api<any>(`/companies/${selectedCompany}?days=30`).catch((e) => ({ error: String(e) })),
+        api<any>(`/compare/${selectedCompany}?days=30`).catch((e) => ({ error: String(e) })),
         api<any>("/pipeline/status").catch((e) => ({ error: String(e), pipeline: [] })),
         api<any>(`/pipeline/logs/${selectedPipeline}?lines=220`).catch((e) => ({ content: "Log pipeline non disponibile." })),
-        api<any>(`/compat/mongo/aggregate/${selectedMongoPreset}`).catch((e) => ({ error: String(e), rows: [] })),
-        api<any>(`/compat/neo4j/query/${selectedNeoPreset}`).catch((e) => ({ error: String(e), rows: [] })),
+        Promise.resolve({ rows: [] }),
+        Promise.resolve({ rows: [] }),
       ]);
 
       let loadedDocs: Doc[] = docRes.documents || [];
@@ -289,11 +289,20 @@ export default function StreamlitIntegratedCockpit() {
 
   const maxSource = Math.max(1, ...Object.values(docsBySource));
   const pipeline: PipelineItem[] = pipelineStatus?.pipeline || overview?.pipeline || [];
-  const companyInfo = companyFull?.graph?.info || {};
-  const companyTopics = companyFull?.graph?.topics || [];
-  const companyComentions = companyFull?.graph?.comentions || [];
+  const graph = companyFull?.graph ?? {};
+  const companyInfo = graph.info ?? {};
+  const companyTopics = graph.topics ?? [];
+
+  const companyComentions =
+    graph.co_mentions ??
+    graph.comentions ??
+    graph.coMentions ??
+    [];
+
   const ohlcv = companyFull?.ohlcv || [];
-  const recentEvents = companyFull?.recent_events || [];
+  const recentEvents = companyFull?.recent_events ?? companyFull?.events ?? [];
+
+
   const compareMongo = compareFull?.mongo || {};
   const compareNeo = compareFull?.neo4j || {};
 
@@ -618,8 +627,8 @@ export default function StreamlitIntegratedCockpit() {
               <p className="text-xs text-on-variant">documenti su {selectedCompany}</p>
               <div className="mt-4 space-y-2">
                 {(compareMongo.by_source || []).slice(0, 6).map((r: any) => (
-                  <div key={r.key} className="flex justify-between rounded-lg bg-surface-lowest px-3 py-2 text-xs">
-                    <span>{r.key}</span><span className="font-mono text-primary">{r.count}</span>
+                  <div key={r.key ?? r._id ?? r.source} className="flex justify-between rounded-lg bg-surface-lowest px-3 py-2 text-xs">
+                    <span>{r.key ?? r._id ?? r.source}</span><span className="font-mono text-primary">{r.count}</span>
                   </div>
                 ))}
               </div>

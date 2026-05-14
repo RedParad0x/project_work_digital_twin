@@ -210,11 +210,11 @@ def graph_stats():
 def company(ticker: str, days: int = 7):
     ticker = ticker.upper()
     client, col = mongo_col()
-    events = list(col.find({"payload.mentions": ticker}).sort("ingested_at", -1).limit(50))
+    events = list(col.find({"payload.mentions": ticker}).sort("ingested_at", -1).limit(5000))
     ohlcv = list(col.find({"source": "yfinance", "payload.ticker": ticker}, {"payload": 1}).sort("payload.timestamp", -1).limit(96))
     client.close()
 
-    graph = {"info": {}, "comentions": [], "topics": []}
+    graph = {"info": {}, "co_mentions": [], "comentions": [], "topics": []}
     try:
         driver = neo4j_driver()
         with driver.session() as s:
@@ -232,7 +232,12 @@ def company(ticker: str, days: int = 7):
             """, t=ticker).data()
             topics = s.run("MATCH (c:Company {ticker:$t})-[:TRENDING_WITH]->(top:Topic) RETURN top.name AS topic LIMIT 20", t=ticker).data()
         driver.close()
-        graph = {"info": dict(info) if info else {}, "comentions": comentions, "topics": [r["topic"] for r in topics]}
+        graph = {
+            "info": dict(info) if info else {},
+            "co_mentions": comentions,
+            "comentions": comentions,
+            "topics": [r["topic"] for r in topics],
+        }
     except Exception:
         pass
 

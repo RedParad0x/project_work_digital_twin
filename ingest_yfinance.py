@@ -25,6 +25,8 @@ import time
 from datetime import datetime, timezone
 
 import yfinance as yf
+from neo4j import GraphDatabase
+from neo4j.exceptions import Neo4jError
 from dotenv import load_dotenv
 
 # Aggiunge la cartella scripts al path per importare ingestion_layer
