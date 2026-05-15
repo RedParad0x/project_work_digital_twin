@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import GraphDatabase
 from pymongo import MongoClient
+import yfinance as yf
 
 load_dotenv()
 
@@ -143,7 +144,25 @@ def overview():
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     by_day = list(col.aggregate([
         {"$match": {"ingested_at": {"$gte": since}}},
-        {"$addFields": {"day": {"$substr": ["$ingested_at", 0, 10]}}},
+        {"$addFields": {
+    "event_date": {
+        "$ifNull": [
+            "$payload.published_at",
+            {
+                "$ifNull": [
+                    "$payload.video_published_at",
+                    {
+                        "$ifNull": [
+                            "$payload.date",
+                            "$ingested_at"
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}},
+{"$addFields": {"day": {"$substr": ["$event_date", 0, 10]}}},
         {"$group": {"_id": {"day": "$day", "src": "$source"}, "n": {"$sum": 1}}},
         {"$sort": {"_id.day": 1}},
     ]))
@@ -325,3 +344,216 @@ def pipeline_run_all():
 
 from pipeline_pro import router as pipeline_pro_router
 app.include_router(pipeline_pro_router)
+
+@app.get("/history/{ticker}")
+def history(
+    ticker: str,
+    days: int = Query(90, ge=1, le=365),
+    market_mode: str = Query("live", pattern="^(live|mongo)$"),
+):
+    ticker = ticker.upper()
+
+    now_dt = datetime.now(timezone.utc)
+    since_dt = now_dt - timedelta(days=days)
+    since_iso = since_dt.isoformat()
+
+    client, col = mongo_col()
+
+    media_match = {
+        "ingested_at": {"$gte": since_iso},
+        "$or": [
+            {"payload.mentions": ticker},
+            {"payload.ticker": ticker},
+        ],
+    }
+
+    event_date_stage = {
+        "$addFields": {
+            "event_date": {
+                "$ifNull": [
+                    "$payload.published_at",
+                    {
+                        "$ifNull": [
+                            "$payload.video_published_at",
+                            {
+                                "$ifNull": [
+                                    "$payload.date",
+                                    "$ingested_at"
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+
+    documents_by_day = list(col.aggregate([
+        {"$match": media_match},
+        event_date_stage,
+        {"$addFields": {"day": {"$substr": ["$event_date", 0, 10]}}},
+        {"$group": {"_id": "$day", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]))
+
+    documents_by_source = list(col.aggregate([
+        {"$match": media_match},
+        {"$group": {"_id": "$source", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]))
+
+    sentiment_by_day = list(col.aggregate([
+        {"$match": {**media_match, "payload.sentiment_label": {"$exists": True}}},
+        event_date_stage,
+        {"$addFields": {"day": {"$substr": ["$event_date", 0, 10]}}},
+        {"$group": {
+            "_id": {
+                "day": "$day",
+                "sentiment": "$payload.sentiment_label"
+            },
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"_id.day": 1}},
+    ]))
+
+    recent_events = list(
+        col.find(media_match)
+        .sort("ingested_at", -1)
+        .limit(100)
+    )
+
+    ohlcv = []
+
+    if market_mode == "mongo":
+        raw_ohlcv = list(
+            col.find(
+                {
+                    "source": "yfinance",
+                    "payload.ticker": ticker,
+                },
+                {"payload": 1, "ingested_at": 1}
+            )
+            .sort("payload.timestamp", 1)
+            .limit(2000)
+        )
+
+        for doc in raw_ohlcv:
+            p = doc.get("payload", {}) or {}
+            ts = str(p.get("timestamp") or p.get("date") or "")
+
+            keep = True
+            try:
+                if ts:
+                    clean_ts = ts.replace("Z", "+00:00")
+                    ts_dt = datetime.fromisoformat(clean_ts)
+                    if ts_dt.tzinfo is None:
+                        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+                    keep = ts_dt >= since_dt
+            except Exception:
+                keep = True
+
+            if keep:
+                ohlcv.append({
+                    **p,
+                    "source_mode": "mongodb_pipeline",
+                })
+
+    else:
+        period_map = {
+            7: "7d",
+            30: "1mo",
+            90: "3mo",
+            180: "6mo",
+            365: "1y",
+        }
+
+        yf_period = period_map.get(days, "3mo")
+
+        try:
+            df = yf.Ticker(ticker).history(
+                period=yf_period,
+                interval="1d",
+                auto_adjust=False,
+                prepost=False,
+            )
+
+            if df is not None and not df.empty:
+                for idx, row in df.iterrows():
+                    if row[["Open", "High", "Low", "Close", "Volume"]].isna().any():
+                        continue
+
+                    ohlcv.append({
+                        "ticker": ticker,
+                        "timestamp": idx.isoformat(),
+                        "date": idx.strftime("%Y-%m-%d"),
+                        "open": round(float(row["Open"]), 4),
+                        "high": round(float(row["High"]), 4),
+                        "low": round(float(row["Low"]), 4),
+                        "close": round(float(row["Close"]), 4),
+                        "volume": int(row["Volume"]),
+                        "source_mode": "yfinance_live_history",
+                    })
+        except Exception as e:
+            print("YFinance history error:", e)
+
+    client.close()
+
+    latest = ohlcv[-1] if ohlcv else {}
+    first = ohlcv[0] if ohlcv else {}
+
+    latest_close = latest.get("close")
+    first_close = first.get("close")
+
+    change_pct = None
+    try:
+        if latest_close and first_close:
+            change_pct = ((float(latest_close) - float(first_close)) / float(first_close)) * 100
+    except Exception:
+        change_pct = None
+
+    volumes = []
+    for p in ohlcv:
+        try:
+            if p.get("volume") is not None:
+                volumes.append(float(p.get("volume")))
+        except Exception:
+            pass
+
+    avg_volume = sum(volumes) / len(volumes) if volumes else None
+
+    return {
+        "ticker": ticker,
+        "days": days,
+        "market_mode": market_mode,
+        "market_source": "mongodb_pipeline" if market_mode == "mongo" else "yfinance_live",
+        "media_source": "mongodb_raw_data",
+        "metrics": {
+            "latest_close": latest_close,
+            "first_close": first_close,
+            "change_pct": change_pct,
+            "avg_volume": avg_volume,
+            "ohlcv_points": len(ohlcv),
+            "events": len(recent_events),
+        },
+        "documents_by_day": [
+            {"day": r["_id"], "count": r["count"]}
+            for r in documents_by_day
+        ],
+        "documents_by_source": [
+            {"source": r["_id"], "count": r["count"]}
+            for r in documents_by_source
+        ],
+        "sentiment_by_day": [
+            {
+                "day": r["_id"]["day"],
+                "sentiment": r["_id"]["sentiment"],
+                "count": r["count"],
+            }
+            for r in sentiment_by_day
+        ],
+        "ohlcv": ohlcv,
+        "events": [
+            clean_doc(e)
+            for e in recent_events
+        ],
+    }
