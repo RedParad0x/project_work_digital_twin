@@ -359,12 +359,39 @@ def history(
 
     client, col = mongo_col()
 
-    media_match = {
-        "ingested_at": {"$gte": since_iso},
+    company_names = {
+        "NVDA": ["NVDA", "NVIDIA", "Nvidia"],
+        "TSLA": ["TSLA", "TESLA", "Tesla"],
+        "AAPL": ["AAPL", "APPLE", "Apple"],
+        "META": ["META", "Meta", "Facebook"],
+        "GOOGL": ["GOOGL", "GOOGLE", "Google", "Alphabet"],
+        "MSFT": ["MSFT", "MICROSOFT", "Microsoft"],
+        "DIS": ["DIS", "DISNEY", "Disney"],
+        "NFLX": ["NFLX", "NETFLIX", "Netflix"],
+        "AMZN": ["AMZN", "AMAZON", "Amazon"],
+        "JPM": ["JPM", "JPMORGAN", "JPMorgan", "JPMorgan Chase"],
+        "PYPL": ["PYPL", "PAYPAL", "PayPal"],
+        "COIN": ["COIN", "Coinbase"],
+        "XOM": ["XOM", "EXXON", "Exxon", "ExxonMobil"],
+        "BA": ["BA", "BOEING", "Boeing"],
+        "RACE": ["RACE", "Ferrari"],
+    }
+
+    terms = company_names.get(ticker, [ticker])
+    regex_terms = "|".join(terms)
+
+    ticker_match = {
         "$or": [
-            {"payload.mentions": ticker},
-            {"payload.ticker": ticker},
-        ],
+            {"payload.mentions": {"$in": terms}},
+            {"payload.ticker": {"$in": terms}},
+            {"payload.symbol": {"$in": terms}},
+            {"payload.query": {"$in": terms}},
+            {"payload.keyword": {"$in": terms}},
+            {"payload.title": {"$regex": regex_terms, "$options": "i"}},
+            {"payload.video_title": {"$regex": regex_terms, "$options": "i"}},
+            {"payload.description": {"$regex": regex_terms, "$options": "i"}},
+            {"payload.text": {"$regex": regex_terms, "$options": "i"}},
+        ]
     }
 
     event_date_stage = {
@@ -378,7 +405,12 @@ def history(
                             {
                                 "$ifNull": [
                                     "$payload.date",
-                                    "$ingested_at"
+                                    {
+                                        "$ifNull": [
+                                            "$payload.timestamp",
+                                            "$ingested_at"
+                                        ]
+                                    }
                                 ]
                             }
                         ]
@@ -388,23 +420,32 @@ def history(
         }
     }
 
+    event_date_filter = {"event_date": {"$gte": since_iso}}
+
     documents_by_day = list(col.aggregate([
-        {"$match": media_match},
+        {"$match": ticker_match},
         event_date_stage,
+        {"$match": event_date_filter},
         {"$addFields": {"day": {"$substr": ["$event_date", 0, 10]}}},
         {"$group": {"_id": "$day", "count": {"$sum": 1}}},
         {"$sort": {"_id": 1}},
     ]))
 
     documents_by_source = list(col.aggregate([
-        {"$match": media_match},
+        {"$match": ticker_match},
+        event_date_stage,
+        {"$match": event_date_filter},
         {"$group": {"_id": "$source", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]))
 
     sentiment_by_day = list(col.aggregate([
-        {"$match": {**media_match, "payload.sentiment_label": {"$exists": True}}},
+        {"$match": ticker_match},
         event_date_stage,
+        {"$match": {
+            "event_date": {"$gte": since_iso},
+            "payload.sentiment_label": {"$exists": True},
+        }},
         {"$addFields": {"day": {"$substr": ["$event_date", 0, 10]}}},
         {"$group": {
             "_id": {
@@ -416,11 +457,13 @@ def history(
         {"$sort": {"_id.day": 1}},
     ]))
 
-    recent_events = list(
-        col.find(media_match)
-        .sort("ingested_at", -1)
-        .limit(100)
-    )
+    recent_events = list(col.aggregate([
+        {"$match": ticker_match},
+        event_date_stage,
+        {"$match": event_date_filter},
+        {"$sort": {"event_date": -1}},
+        {"$limit": 100},
+    ]))
 
     ohlcv = []
 
@@ -433,28 +476,31 @@ def history(
                 },
                 {"payload": 1, "ingested_at": 1}
             )
-            .sort("payload.timestamp", 1)
+            .sort("ingested_at", 1)
             .limit(2000)
         )
 
         for doc in raw_ohlcv:
             p = doc.get("payload", {}) or {}
-            ts = str(p.get("timestamp") or p.get("date") or "")
+            ingested_at = str(doc.get("ingested_at") or "")
+            ts = str(p.get("timestamp") or p.get("date") or ingested_at)
 
             keep = True
             try:
-                if ts:
-                    clean_ts = ts.replace("Z", "+00:00")
-                    ts_dt = datetime.fromisoformat(clean_ts)
-                    if ts_dt.tzinfo is None:
-                        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
-                    keep = ts_dt >= since_dt
+                compare_date = ingested_at or ts
+                clean_ts = compare_date.replace("Z", "+00:00")
+                ts_dt = datetime.fromisoformat(clean_ts)
+                if ts_dt.tzinfo is None:
+                    ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+                keep = ts_dt >= since_dt
             except Exception:
                 keep = True
 
             if keep:
                 ohlcv.append({
                     **p,
+                    "timestamp": ingested_at or ts,
+                    "date": (ingested_at or ts)[:10],
                     "source_mode": "mongodb_pipeline",
                 })
 
