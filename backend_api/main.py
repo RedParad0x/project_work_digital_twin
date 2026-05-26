@@ -603,3 +603,87 @@ def history(
             for e in recent_events
         ],
     }
+
+@app.get("/graph/explore")
+def graph_explore(ticker: str = "ALL", limit: int = Query(120, ge=20, le=300)):
+    driver = neo4j_driver()
+
+    nodes = {}
+    links = []
+
+    def add_node(node_id, label, node_type):
+        if node_id and node_id not in nodes:
+            nodes[node_id] = {
+                "id": node_id,
+                "label": label or node_id,
+                "type": node_type,
+            }
+
+    def add_link(source, target, rel_type, weight=1):
+        if source and target:
+            links.append({
+                "source": source,
+                "target": target,
+                "type": rel_type,
+                "weight": weight,
+            })
+
+    with driver.session() as s:
+        if ticker != "ALL":
+            rows = s.run("""
+                MATCH (c:Company {ticker:$ticker})
+                OPTIONAL MATCH (c)<-[r1:MENZIONATA_IN]-(e:Event)
+                OPTIONAL MATCH (c)-[r2:TRENDING_WITH]->(t:Topic)
+                OPTIONAL MATCH (c)-[r3:BELONGS_TO]->(i:Industry)
+                OPTIONAL MATCH (i)-[r4:PART_OF]->(sec:Sector)
+                RETURN c, e, t, i, sec
+                LIMIT $limit
+            """, ticker=ticker, limit=limit).data()
+        else:
+            rows = s.run("""
+                MATCH (c:Company)
+                OPTIONAL MATCH (c)<-[r1:MENZIONATA_IN]-(e:Event)
+                OPTIONAL MATCH (c)-[r2:TRENDING_WITH]->(t:Topic)
+                OPTIONAL MATCH (c)-[r3:BELONGS_TO]->(i:Industry)
+                OPTIONAL MATCH (i)-[r4:PART_OF]->(sec:Sector)
+                RETURN c, e, t, i, sec
+                LIMIT $limit
+            """, limit=limit).data()
+
+    driver.close()
+
+    for row in rows:
+        c = row.get("c")
+        e = row.get("e")
+        t = row.get("t")
+        i = row.get("i")
+        sec = row.get("sec")
+
+        if c:
+            company_id = c.get("ticker")
+            add_node(company_id, c.get("name") or company_id, "Company")
+
+            if e:
+                event_id = e.get("mongo_id") or e.get("title")
+                add_node(event_id, e.get("title") or "Event", "Event")
+                add_link(event_id, company_id, "MENZIONATA_IN")
+
+            if t:
+                topic_id = f"topic:{t.get('name')}"
+                add_node(topic_id, t.get("name"), "Topic")
+                add_link(company_id, topic_id, "TRENDING_WITH")
+
+            if i:
+                industry_id = f"industry:{i.get('name')}"
+                add_node(industry_id, i.get("name"), "Industry")
+                add_link(company_id, industry_id, "BELONGS_TO")
+
+                if sec:
+                    sector_id = f"sector:{sec.get('name')}"
+                    add_node(sector_id, sec.get("name"), "Sector")
+                    add_link(industry_id, sector_id, "PART_OF")
+
+    return {
+        "nodes": list(nodes.values()),
+        "links": links,
+    }
